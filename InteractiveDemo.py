@@ -81,8 +81,11 @@ def DefineMenu():
   dictMenu["help"] = "Displays this message. Can also use /h -h and --help"
   dictMenu["init"] = "Initialize everything"
   dictMenu["add"]  = "Adds a new entry"
+  dictMenu["list"] = "List out all entries"
 
 def ProcessCmd(strCmd):
+
+  print("Processing command '{}' ".format(strCmd))
   strCmd = strCmd.replace("-","")
   strCmd = strCmd.replace("/","")
   strCmd = strCmd.replace("\\","")
@@ -101,7 +104,7 @@ def ProcessCmd(strCmd):
     objRedis.flushdb()
     print("Redis DB has been flushed. Have a nice day")
   elif strCmd == "add":
-    if iSysArgLen > 1:
+    if iSysArgLen > 2:
       for i in range(2,iSysArgLen):
         print("Adding {}".format(lstSysArg[i]))
         objRedis.lpush("MyList",lstSysArg[i])
@@ -109,9 +112,13 @@ def ProcessCmd(strCmd):
       strValues = input("Please provide values to be added, you can specify multiple comma seperate values: ")
       lstValues = strValues.split(",")
       for strValue in lstValues:
+        strValue = strValue.strip()
         print("Adding {}".format(strValue))
         objRedis.lpush("MyList",strValue)
-
+  elif strCmd == "list":
+    lstMembers = objRedis.lrange("MyList",0,-1)
+    for strMember in lstMembers:
+      print(strMember.decode())
   else:
     print("{} not implemented".format(strCmd))
 
