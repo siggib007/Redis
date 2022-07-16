@@ -86,8 +86,10 @@ def DefineMenu():
   dictMenu["help"] = "Displays this message. Can also use /h -h and --help"
   dictMenu["interactive"] = "Use interactive mode, where you always go back to the menu. Can also use /i and -i. Use quit to exit interactive mode"
   dictMenu["reset"] = "Reset and initialize everything"
-  dictMenu["add"]  = "Adds a new entry"
-  dictMenu["list"] = "List out all entries"
+  dictMenu["add"]   = "Adds a new entry"
+  dictMenu["list"]  = "List out all entries"
+  dictMenu["show"]  = "Shows all the list names"
+  dictMenu["new"]   = "Creates a new list"
 
 def ProcessCmd(strCmd):
   global bInteractive
@@ -144,11 +146,48 @@ def ProcessCmd(strCmd):
     for strValue in lstCmd:
       strValue = strValue.strip()
       print("Adding {}".format(strValue))
-      objRedis.lpush("MyList",strValue)
+      objRedis.rpush("MyList",strValue)
+  elif strCmd == "new":
+    if iCmdLen == 0:
+      strCmd = input("Please provide the of the list to be added, you can specify multiple comma seperate values: ")
+      lstCmd = strCmd.split(",")
+    for strValue in lstCmd:
+      strValue = strValue.strip()
+      print("Adding {}".format(strValue))
+      objRedis.rpush("ListNames",strValue)
   elif strCmd == "list":
-    iListLen = objRedis.llen("MyList")
+    if objRedis.llen("ListNames") == 1:
+      strListName = objRedis.lindex("ListNames",0)
+      print("There is only one list defined, named {}. So defaulting to that list".format(strListName.decode()))
+    else:
+      print("Which of these lists do you want to list:")
+      lstMembers = objRedis.lrange("ListNames",0,-1)
+      i =0
+      for strMember in lstMembers:
+        print("{} - {}".format(i,strMember.decode()))
+        i += 1
+      strCmd = input("Please select a list: ")
+      if isInt(strCmd):
+        strListName = objRedis.lindex("ListNames",strCmd)
+        if strListName is None:
+          print("{} is not a valid selection".format(strCmd))
+          return
+      else:
+        if isInt(objRedis.lpos("ListNames",strCmd)):
+          strListName = strCmd
+        else:
+          print("{} is not a valid selection".format(strCmd))
+          return
+
+    iListLen = objRedis.llen(strListName)
     print ("Printing out all the entries. There are {} entries.".format(iListLen))
-    lstMembers = objRedis.lrange("MyList",0,-1)
+    lstMembers = objRedis.lrange(strListName,0,-1)
+    for strMember in lstMembers:
+      print(strMember.decode())
+  elif strCmd == "show":
+    iListLen = objRedis.llen("ListNames")
+    print ("Printing out all the List names. There are {} entries.".format(iListLen))
+    lstMembers = objRedis.lrange("ListNames",0,-1)
     for strMember in lstMembers:
       print(strMember.decode())
   else:
@@ -179,17 +218,8 @@ def main():
     strBaseDir = strRealPath[:iLoc]
   if strBaseDir[-1:] != "/":
     strBaseDir += "/"
-  strLogDir  = strBaseDir + "Logs/"
-  if strLogDir[-1:] != "/":
-    strLogDir += "/"
-
-  # if not os.path.exists (strLogDir) :
-  #   os.makedirs(strLogDir)
-  #   print("\nPath '{0}' for log files didn't exists, so I create it!\n".format(strLogDir))
 
   strScriptName = os.path.basename(sys.argv[0])
-  # iLoc = strScriptName.rfind(".")
-  # strLogFile = strLogDir + strScriptName[:iLoc] + ISO + ".log"
   strVersion = "{0}.{1}.{2}".format(sys.version_info[0],sys.version_info[1],sys.version_info[2])
   strScriptHost = platform.node().upper()
 
@@ -198,8 +228,6 @@ def main():
   print("Running from: {}".format(strRealPath))
   dtNow = time.asctime()
   print("The time now is {}".format(dtNow))
-  # print("Logs saved to {}".format(strLogFile))
-  # objLogOut = open(strLogFile,"w",1)
 
   if objRedis.exists("AppName") == 0:
     print("\nThis is first time this is run again this Redis instance.")
@@ -212,7 +240,7 @@ def main():
   strCommand = ""
   if iSysArgLen > 1:
     strCommand = lstSysArg[1]
-    print("command {} detected in parameters".format(strCommand))
+    # print("command {} detected in parameters".format(strCommand))
     ProcessCmd(strCommand)
   else:
     DisplayHelp()
