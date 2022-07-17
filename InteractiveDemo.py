@@ -12,8 +12,15 @@ pip install redis
 import sys
 import os
 import time
-import redis
 import re
+import subprocess
+
+try:
+  import redis
+except ImportError:
+  subprocess.check_call([sys.executable, "-m", "pip", "install", 'redis'])
+finally:
+    import redis
 
 # End imports
 
