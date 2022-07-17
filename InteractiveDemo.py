@@ -9,11 +9,9 @@ pip install redis
 
 '''
 # Import libraries
-from glob import glob
 import sys
 import os
 import time
-import platform
 import redis
 import re
 
@@ -26,40 +24,7 @@ bInteractive = False
 strRedisHost = "localhost"
 iRedisPort = 6379
 iRedisDB = 0
-
-def CleanExit(strCause):
-  """
-  Handles cleaning things up before unexpected exit in case of an error.
-  Things such as closing down open file handles, open database connections, etc.
-  Logs any cause given, closes everything down then terminates the script.
-  Parameters:
-    Cause: simple string indicating cause of the termination, can be blank
-  Returns:
-    nothing as it terminates the script
-  """
-  if strCause != "":
-    LogEntry("{} is exiting abnormally on {}: {}".format (strScriptName,strScriptHost,strCause))
-
-  objLogOut.close()
-  print("objLogOut closed")
-  sys.exit(9)
-
-def LogEntry(strMsg,bAbort=False):
-  """
-  This handles writing all event logs into the appropriate log facilities
-  This could be a simple text log file, a database connection, etc.
-  Needs to be customized as needed
-  Parameters:
-    Message: Simple string with the event to be logged
-    Abort: Optional, defaults to false. A boolean to indicate if CleanExit should be called.
-  Returns:
-    Nothing
-  """
-  strTimeStamp = time.strftime("%m-%d-%Y %H:%M:%S")
-  objLogOut.write("{0} : {1}\n".format(strTimeStamp,strMsg))
-  print(strMsg)
-  if bAbort:
-    CleanExit("")
+strListOfList = "ListNames"
 
 def isInt(CheckValue):
   """
@@ -79,17 +44,69 @@ def isInt(CheckValue):
   else:
     return False
 
+def GetListName():
+  strListName = ""
+  if objRedis.llen("ListNames") == 1:
+    strListName = objRedis.lindex("ListNames",0)
+    print("There is only one list defined, named {}. So using that list".format(strListName.decode()))
+  elif objRedis.llen("ListNames") == 0:
+    print("No Lists have been defined")
+    return None
+  else:
+    while strListName == "":
+      print("Which of these lists do you want to use:")
+      lstMembers = objRedis.lrange("ListNames",0,-1)
+      i = 0
+      for strMember in lstMembers:
+        print("{} - {}".format(i,strMember.decode()))
+        i += 1
+      strCmd = input("Please select a list: ")
+      if isInt(strCmd):
+        strListName = objRedis.lindex("ListNames",strCmd)
+        if strListName is None:
+          print("{} is not a valid selection".format(strCmd))
+      else:
+        if isInt(objRedis.lpos("ListNames",strCmd)):
+          strListName = strCmd
+        else:
+          print("{} is not a valid selection".format(strCmd))
+  return strListName
+
+def GetListMembers(strListName,strPrompt):
+    if strListName is None:
+      return None
+    iListLen = objRedis.llen(strListName)
+    print ("Printing out all the {}. There are {} entries.".format(strPrompt, iListLen))
+    lstMembers = objRedis.lrange(strListName,0,-1)
+    for strMember in lstMembers:
+      print(strMember.decode())
+
+def Add2List(lstCmd, strListName, strPrompt):
+  if strListName is None:
+    return None
+  iCmdLen = len(lstCmd)
+  if iCmdLen == 0:
+    strCmd = input("Please provide {}, you can specify multiple comma seperate values: ".format(strPrompt))
+    lstCmd = strCmd.split(",")
+  for strValue in lstCmd:
+    strValue = strValue.strip()
+    print("Adding {}".format(strValue))
+    objRedis.rpush(strListName,strValue)
+
 def DefineMenu():
   global dictMenu
 
   dictMenu = {}
-  dictMenu["help"] = "Displays this message. Can also use /h -h and --help"
+  dictMenu["help"]        = "Displays this message. Can also use /h -h and --help"
   dictMenu["interactive"] = "Use interactive mode, where you always go back to the menu. Can also use /i and -i. Use quit to exit interactive mode"
-  dictMenu["reset"] = "Reset and initialize everything"
-  dictMenu["add"]   = "Adds a new entry"
-  dictMenu["list"]  = "List out all entries"
-  dictMenu["show"]  = "Shows all the list names"
-  dictMenu["new"]   = "Creates a new list"
+  dictMenu["reset"]       = "Reset and initialize everything"
+  dictMenu["add"]         = "Adds a new entry to a specified list"
+  dictMenu["list"]        = "List out all entries of a specified list"
+  dictMenu["show"]        = "Shows all the list names"
+  dictMenu["new"]         = "Creates a new list"
+  dictMenu["del"]         = "Clear out a specified list"
+  dictMenu["remove"]      = "Remove a specified list"
+
 
 def ProcessCmd(strCmd):
   global bInteractive
@@ -112,16 +129,13 @@ def ProcessCmd(strCmd):
   if len(lstCmd) > 1:
     strCmd = lstCmd[0]
     del lstCmd[0]
-    iCmdLen = len(lstCmd)
   else:
     if bInteractive or len(lstSysArg) < 3:
       lstCmd = []
-      iCmdLen = 0
     else:
       lstCmd = lstSysArg
       del lstCmd[0]
       del lstCmd[0]
-      iCmdLen = len(lstCmd)
   if strCmd == "q" or strCmd == "quit" or strCmd == "exit":
     bInteractive = False
     print("Goodbye!!!")
@@ -140,56 +154,33 @@ def ProcessCmd(strCmd):
     print("Redis DB has been flushed. Have a nice day")
     bInteractive = False
   elif strCmd == "add":
-    if iCmdLen == 0:
-      strCmd = input("Please provide values to be added, you can specify multiple comma seperate values: ")
-      lstCmd = strCmd.split(",")
-    for strValue in lstCmd:
-      strValue = strValue.strip()
-      print("Adding {}".format(strValue))
-      objRedis.rpush("MyList",strValue)
+    Add2List(lstCmd,GetListName(),"values to be added")
   elif strCmd == "new":
-    if iCmdLen == 0:
-      strCmd = input("Please provide the of the list to be added, you can specify multiple comma seperate values: ")
-      lstCmd = strCmd.split(",")
-    for strValue in lstCmd:
-      strValue = strValue.strip()
-      print("Adding {}".format(strValue))
-      objRedis.rpush("ListNames",strValue)
+    Add2List(lstCmd,strListOfList,"the name of the list to be created")
   elif strCmd == "list":
-    if objRedis.llen("ListNames") == 1:
-      strListName = objRedis.lindex("ListNames",0)
-      print("There is only one list defined, named {}. So defaulting to that list".format(strListName.decode()))
-    else:
-      print("Which of these lists do you want to list:")
-      lstMembers = objRedis.lrange("ListNames",0,-1)
-      i =0
-      for strMember in lstMembers:
-        print("{} - {}".format(i,strMember.decode()))
-        i += 1
-      strCmd = input("Please select a list: ")
-      if isInt(strCmd):
-        strListName = objRedis.lindex("ListNames",strCmd)
-        if strListName is None:
-          print("{} is not a valid selection".format(strCmd))
-          return
-      else:
-        if isInt(objRedis.lpos("ListNames",strCmd)):
-          strListName = strCmd
-        else:
-          print("{} is not a valid selection".format(strCmd))
-          return
-
-    iListLen = objRedis.llen(strListName)
-    print ("Printing out all the entries. There are {} entries.".format(iListLen))
-    lstMembers = objRedis.lrange(strListName,0,-1)
-    for strMember in lstMembers:
-      print(strMember.decode())
+    GetListMembers(GetListName(),"entries")
   elif strCmd == "show":
-    iListLen = objRedis.llen("ListNames")
-    print ("Printing out all the List names. There are {} entries.".format(iListLen))
-    lstMembers = objRedis.lrange("ListNames",0,-1)
-    for strMember in lstMembers:
-      print(strMember.decode())
+    GetListMembers(strListOfList,"List names")
+  elif strCmd == "del":
+    strListName = GetListName()
+    if strListName is not None:
+      strListName = strListName.decode()
+      print("Clearing list {}".format(strListName))
+      iTemp = objRedis.delete(strListName)
+      if iTemp == 0:
+        print("List already empty")
+      else:
+        print("List emptied out")
+  elif strCmd == "remove":
+    strListName = GetListName()
+    if strListName is not None:
+      strListName = strListName.decode()
+      print("Deleting list {}".format(strListName))
+      iTemp = objRedis.lrem(strListOfList, 0, strListName)
+      if iTemp == 0:
+        print("List not removed")
+      else:
+        print("List removed")
   else:
     print("{} not implemented".format(strCmd))
 
@@ -199,29 +190,16 @@ def DisplayHelp():
     print("{} : {}".format(strItem,dictMenu[strItem]))
 
 def main():
-  global objLogOut
-  global strScriptName
-  global strScriptHost
-  global strBaseDir
   global objRedis
 
   DefineMenu()
 
-  ISO = time.strftime("-%Y-%m-%d-%H-%M-%S")
   objRedis = redis.Redis(host=strRedisHost, port=iRedisPort, db=iRedisDB)
 
-  strBaseDir = os.path.dirname(sys.argv[0])
   strRealPath = os.path.realpath(sys.argv[0])
   strRealPath = strRealPath.replace("\\","/")
-  if strBaseDir == "":
-    iLoc = strRealPath.rfind("/")
-    strBaseDir = strRealPath[:iLoc]
-  if strBaseDir[-1:] != "/":
-    strBaseDir += "/"
 
-  strScriptName = os.path.basename(sys.argv[0])
   strVersion = "{0}.{1}.{2}".format(sys.version_info[0],sys.version_info[1],sys.version_info[2])
-  strScriptHost = platform.node().upper()
 
   print("This is a script to play around with Redis. "
     "This is running under Python Version {}".format(strVersion))
@@ -237,16 +215,20 @@ def main():
     strAppName = objRedis.get("AppName")
     strAppName = strAppName.decode()
   print("\nWelcome to {}".format(strAppName))
+
+  if objRedis.exists(strListOfList) == 0:
+    print("\nNo Lists have been setup, please create one or more lists.")
+    ProcessCmd("new")
   strCommand = ""
   if iSysArgLen > 1:
     strCommand = lstSysArg[1]
-    # print("command {} detected in parameters".format(strCommand))
     ProcessCmd(strCommand)
   else:
     DisplayHelp()
     strCommand = input("Please provide command: ")
     ProcessCmd(strCommand)
   while bInteractive:
+    input("Please hit enter to continue ...")
     DisplayHelp()
     strCommand = input("Please provide command: ")
     ProcessCmd(strCommand)
