@@ -19,12 +19,13 @@ import re
 
 # Some Globals
 lstSysArg = sys.argv
-iSysArgLen = len(lstSysArg)
 bInteractive = False
 strRedisHost = "localhost"
 iRedisPort = 6379
 iRedisDB = 0
 strListOfList = "ListNames"
+
+# functions
 
 def isInt(CheckValue):
   """
@@ -46,27 +47,31 @@ def isInt(CheckValue):
 
 def GetListName():
   strListName = ""
-  if objRedis.llen("ListNames") == 1:
-    strListName = objRedis.lindex("ListNames",0)
+  if objRedis.llen(strListOfList) == 1:
+    strListName = objRedis.lindex(strListOfList,0)
     print("There is only one list defined, named {}. So using that list".format(strListName.decode()))
-  elif objRedis.llen("ListNames") == 0:
+  elif objRedis.llen(strListOfList) == 0:
     print("No Lists have been defined")
     return None
   else:
     while strListName == "":
       print("Which of these lists do you want to use:")
-      lstMembers = objRedis.lrange("ListNames",0,-1)
+      lstMembers = objRedis.lrange(strListOfList,0,-1)
       i = 0
       for strMember in lstMembers:
         print("{} - {}".format(i,strMember.decode()))
         i += 1
+      print("{} - {}".format(i,"None"))
       strCmd = input("Please select a list: ")
+      if strCmd.lower() == "none" or strCmd == str(i):
+        return None
       if isInt(strCmd):
-        strListName = objRedis.lindex("ListNames",strCmd)
+        strListName = objRedis.lindex(strListOfList,strCmd)
         if strListName is None:
           print("{} is not a valid selection".format(strCmd))
+          strListName = ""
       else:
-        if isInt(objRedis.lpos("ListNames",strCmd)):
+        if isInt(objRedis.lpos(strListOfList,strCmd)):
           strListName = strCmd
         else:
           print("{} is not a valid selection".format(strCmd))
@@ -75,6 +80,8 @@ def GetListName():
 def GetListMembers(strListName,strPrompt):
     if strListName is None:
       return None
+    if strListName != strListOfList:
+      print ("Fetching members of list {}".format(strListName))
     iListLen = objRedis.llen(strListName)
     print ("Printing out all the {}. There are {} entries.".format(strPrompt, iListLen))
     lstMembers = objRedis.lrange(strListName,0,-1)
@@ -84,6 +91,9 @@ def GetListMembers(strListName,strPrompt):
 def Add2List(lstCmd, strListName, strPrompt):
   if strListName is None:
     return None
+  if strListName != strListOfList:
+    print ("Adding to list {}".format(strListName))
+
   iCmdLen = len(lstCmd)
   if iCmdLen == 0:
     strCmd = input("Please provide {}, you can specify multiple comma seperate values: ".format(strPrompt))
@@ -92,6 +102,20 @@ def Add2List(lstCmd, strListName, strPrompt):
     strValue = strValue.strip()
     print("Adding {}".format(strValue))
     objRedis.rpush(strListName,strValue)
+
+def RemoveItem(strListName,strItem,strPrompt):
+  if strListName is not None and strItem is not None:
+    if strListName != strListOfList:
+      print ("Removing {} from {}".format(strItem,strListName))
+    print("Deleting {} {}".format(strPrompt, strItem))
+    iTemp = objRedis.lrem(strListName, 0, strItem)
+    print("{} {} removed".format(iTemp,strPrompt))
+
+def CheckListName(strListName):
+  if isInt(objRedis.lpos(strListOfList,strListName)):
+    return True
+  else:
+    return False
 
 def DefineMenu():
   global dictMenu
@@ -104,13 +128,12 @@ def DefineMenu():
   dictMenu["list"]        = "List out all entries of a specified list"
   dictMenu["show"]        = "Shows all the list names"
   dictMenu["new"]         = "Creates a new list"
-  dictMenu["del"]         = "Clear out a specified list"
+  dictMenu["clear"]       = "Clear out a specified list"
   dictMenu["remove"]      = "Remove a specified list"
-
+  dictMenu["del"]         = "Remove specified item from the specified list"
 
 def ProcessCmd(strCmd):
   global bInteractive
-  global iSysArgLen
   global lstSysArg
 
   strCmd = strCmd.replace("-","")
@@ -119,6 +142,7 @@ def ProcessCmd(strCmd):
   strCmd = strCmd.replace("<","")
   strCmd = strCmd.replace(">","")
   strCmd = strCmd.lower()
+  strListName = ""
 
   if strCmd[0] == "i":
     print("Entering interactive mode. Use command exit or quit to end")
@@ -129,6 +153,9 @@ def ProcessCmd(strCmd):
   if len(lstCmd) > 1:
     strCmd = lstCmd[0]
     del lstCmd[0]
+    if CheckListName(lstCmd[0]):
+      strListName = lstCmd[0]
+      del lstCmd[0]
   else:
     if bInteractive or len(lstSysArg) < 3:
       lstCmd = []
@@ -136,6 +163,9 @@ def ProcessCmd(strCmd):
       lstCmd = lstSysArg
       del lstCmd[0]
       del lstCmd[0]
+      if CheckListName(lstCmd[0]):
+        strListName = lstCmd[0]
+        del lstCmd[0]
   if strCmd == "q" or strCmd == "quit" or strCmd == "exit":
     bInteractive = False
     print("Goodbye!!!")
@@ -154,15 +184,20 @@ def ProcessCmd(strCmd):
     print("Redis DB has been flushed. Have a nice day")
     bInteractive = False
   elif strCmd == "add":
-    Add2List(lstCmd,GetListName(),"values to be added")
+    if strListName == "":
+      strListName = GetListName()
+    Add2List(lstCmd,strListName,"values to be added")
   elif strCmd == "new":
     Add2List(lstCmd,strListOfList,"the name of the list to be created")
   elif strCmd == "list":
-    GetListMembers(GetListName(),"entries")
+    if strListName == "":
+      strListName = GetListName()
+    GetListMembers(strListName,"entries")
   elif strCmd == "show":
     GetListMembers(strListOfList,"List names")
-  elif strCmd == "del":
-    strListName = GetListName()
+  elif strCmd == "clear":
+    if strListName == "":
+      strListName = GetListName()
     if strListName is not None:
       strListName = strListName.decode()
       print("Clearing list {}".format(strListName))
@@ -172,15 +207,19 @@ def ProcessCmd(strCmd):
       else:
         print("List emptied out")
   elif strCmd == "remove":
-    strListName = GetListName()
-    if strListName is not None:
-      strListName = strListName.decode()
-      print("Deleting list {}".format(strListName))
-      iTemp = objRedis.lrem(strListOfList, 0, strListName)
-      if iTemp == 0:
-        print("List not removed")
-      else:
-        print("List removed")
+    if len(lstCmd) > 0 and strListName == "":
+      print("Invalid list name {} ...".format(lstCmd[0]))
+    if strListName == "":
+      strListName = GetListName()
+    RemoveItem(strListOfList,strListName,"list")
+  elif strCmd == "del":
+    if strListName == "":
+      strListName = GetListName()
+    if len(lstCmd) > 0:
+      strItem = lstCmd[0]
+    else:
+      strItem = input("Please provide the item to be removed from list '{}': ".format(strListName))
+    RemoveItem(strListName,strItem,"item")
   else:
     print("{} not implemented".format(strCmd))
 
@@ -220,7 +259,7 @@ def main():
     print("\nNo Lists have been setup, please create one or more lists.")
     ProcessCmd("new")
   strCommand = ""
-  if iSysArgLen > 1:
+  if len(lstSysArg) > 1:
     strCommand = lstSysArg[1]
     ProcessCmd(strCommand)
   else:
